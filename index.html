@@ -207,6 +207,9 @@ input.mk{width:84px;margin:0;padding:6px 8px}
 <div id="toast" aria-live="polite"></div>
 <script>
 'use strict';
+/* Supabase project (public values only). The publishable key is safe in the browser; the database rules protect the data. */
+const CLOUD_URL='https://qcfpbkdwayrkqozoaafd.supabase.co',CLOUD_KEY='sb_publishable_QSqh5ExGfHL5oEuxZ5fBHw_weo4wRfW',STU_DOMAIN='students.eduvanta.app';
+const CLOUD=!!(CLOUD_URL&&CLOUD_KEY);
 /* ============ utilities ============ */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -256,7 +259,7 @@ function scaffold(subject,cls,topic){return{
 function seedFresh(){
  const id='dace',db={v:3,session:null,theme:(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light',
   schools:[{id,name:'D-Ace Ultimate Secondary School',city:'',code:'DAUSS',created:iso(new Date()),active:true,plan:'Free',settings:{resume:'08:00',close:'15:00',grace:5,geofence:false,lat:null,lng:null,radius:150,noteDay:4,aiEnabled:true}}],
-  users:[],classes:[],subjects:[],sessions:[],slots:[],attendance:[],lessons:[],notes:[],notifs:[],audit:[],announce:[],folders:[],activity:[],comments:[],assessments:[],attempts:[],marks:[],sheets:[],flags:{},config:{free:true,storageCapMB:50,uploadMaxKB:700}};
+  users:[],classes:[],subjects:[],sessions:[],slots:[],attendance:[],lessons:[],notes:[],notifs:[],audit:[],announce:[],folders:[],activity:[],comments:[],termresults:[],assessments:[],attempts:[],marks:[],sheets:[],flags:{},config:{free:true,storageCapMB:50,uploadMaxKB:700}};
  ['JSS1','JSS2','JSS3','SS1','SS2','SS3'].forEach(c=>db.classes.push({id:id+'_c_'+c,school:id,name:c}));
  ['English Language','Mathematics','Civic Education','Basic Science','Physics','Chemistry','Biology','Economics','Government','Literature-in-English','Agricultural Science','Computer Studies'].forEach(n=>db.subjects.push({id:id+'_s_'+slug(n),school:id,name:n}));
  db.sessions.push({id:id+'_ses_2627',school:id,name:'2026/2027',current:true,termIdx:0,terms:[{name:'First Term',start:'2026-09-14',end:'2026-12-18'},{name:'Second Term',start:'2027-01-11',end:'2027-04-02'},{name:'Third Term',start:'2027-04-26',end:'2027-07-16'}]});
@@ -269,19 +272,20 @@ let DB=null;const KEY='eduvanta:db:v3';let HAS_STORE=false,saveT=null;
 let STORE_KIND='none';
 const lsOK=()=>{try{localStorage.setItem('__t','1');localStorage.removeItem('__t');return true}catch(e){return false}};
 async function loadDB(){
+ if(CLOUD){await cloudBoot();return}
  HAS_STORE=false;let raw=null;
  try{if(window.storage&&window.storage.get){const r=await window.storage.get(KEY);STORE_KIND='cloud';HAS_STORE=true;if(r&&r.value)raw=r.value}}catch(e){}
  if(!raw&&lsOK()){if(STORE_KIND==='none'){STORE_KIND='local';HAS_STORE=true}try{raw=localStorage.getItem(KEY)||raw}catch(e){}}
- try{if(raw){const d=JSON.parse(raw);if(d.v===3){DB=d;['assessments','attempts','marks','sheets','comments'].forEach(k=>{DB[k]=DB[k]||[]});return}}}catch(e){}
+ try{if(raw){const d=JSON.parse(raw);if(d.v===3){DB=d;['assessments','attempts','marks','sheets','comments','termresults'].forEach(k=>{DB[k]=DB[k]||[]});return}}}catch(e){}
  DB=seedFresh();
 }
-function persist(){clearTimeout(saveT);setPill('Saving…');saveT=setTimeout(async()=>{const js=JSON.stringify(DB);let ok=false,full=false;
+function persist(){if(CLOUD){cloudPersist();return}clearTimeout(saveT);setPill('Saving…');saveT=setTimeout(async()=>{const js=JSON.stringify(DB);let ok=false,full=false;
  try{if(STORE_KIND==='cloud'){await window.storage.set(KEY,js);ok=true}}catch(e){}
  try{if(lsOK()){localStorage.setItem(KEY,js);ok=true}}catch(e){full=true}
  if(full&&!ok&&!S.warnFail){S.warnFail=1;toast("This browser's storage is full, so the latest changes are not saved. Download a backup now.",'bad')}
  else if(js.length>4.2e6&&!S.warnFull){S.warnFull=1;toast('Storage is nearly full. Download a backup now and plan to connect Supabase.','bad')}
  setPill(ok?'Saved':'Session only')},350)}
-function setPill(t){const p=$('#pill');if(p){p.textContent=t;p.className='pill hm'+(t==='Session only'||t==='Offline'?' off':'')}}
+function setPill(t){const p=$('#pill');if(p){p.textContent=t;p.className='pill hm'+(/Session only|Offline|Not synced/.test(t)?' off':'')}}
 
 /* ============ session + data access (every query is scoped to the signed-in school) ============ */
 const S={user:null,view:'dashboard',params:{},menu:false,tab:{},f:{},ttMode:'week',ttTarget:'',date:null,rep:{key:'attDaily'}};
@@ -295,7 +299,7 @@ const curSession=()=>{const s=mine('sessions').find(x=>x.current);return s||mine
 const curTerm=()=>{const s=curSession();return s?s.terms[s.termIdx]:null};
 function weekOfTerm(date=TODAY()){const t=curTerm();if(!t)return 1;return Math.max(1,Math.floor((parse(date)-parse(t.start))/604800000)+1)}
 const activeUser=()=>byId('users',DB.session);
-function logAct(text){DB.activity.unshift({ts:Date.now(),school:sid(),userId:S.user&&S.user.id,text});DB.activity=DB.activity.slice(0,300)}
+function logAct(text){DB.activity.unshift({id:uid(),ts:Date.now(),school:sid(),userId:S.user&&S.user.id,text});DB.activity=DB.activity.slice(0,300)}
 function notify(to,title,body,type='Info'){DB.notifs.push({id:uid(),school:sid(),to,title,body,type,ts:Date.now(),read:false})}
 const notifyAdmins=(t,b,ty)=>mine('users').filter(u=>u.role==='admin').forEach(u=>notify(u.id,t,b,ty));
 
@@ -327,7 +331,7 @@ function teacherStats(uid_,n=15){
  return{pres,late,abs,early,days:pres+late+abs,attPct:pct(pres+late,pres+late+abs),punct:pct(pres,pres+late),sched:inst.length,done,missed,
   submitted:notes.filter(x=>x.status!=='draft').length,approved:notes.filter(x=>x.status==='approved').length,drafts:notes.filter(x=>x.status==='draft').length,outstanding:out.length,outList:out}
 }
-function pairsOf(uid_){return [...new Set(mine('slots').filter(s=>s.teacherId===uid_).map(s=>s.classId+'|'+s.subjectId))].map(p=>{const [classId,subjectId]=p.split('|');return{classId,subjectId}})}
+function pairsOf(uid_){const m=new Map();mine('slots').filter(s=>s.teacherId===uid_).forEach(s=>m.set(s.classId+'|'+s.subjectId,{classId:s.classId,subjectId:s.subjectId}));((byId('users',uid_)||{}).assign||[]).forEach(a=>m.set(a.classId+'|'+a.subjectId,{classId:a.classId,subjectId:a.subjectId}));return[...m.values()]}
 function outstandingFor(uid_){const ses=curSession(),tm=curTerm(),wk=weekOfTerm(),N=mine('notes');
  return pairsOf(uid_).filter(p=>!N.some(n=>n.teacherId===uid_&&n.sessionId===ses.id&&tm&&n.term===tm.name&&n.week===wk&&n.classId===p.classId&&n.subjectId===p.subjectId&&n.status!=='draft'))}
 const noteDeadline=()=>{const d=school().settings.noteDay;return addDays(mondayOf(TODAY()),d)};
@@ -393,7 +397,7 @@ function render(keepScroll){
   <nav class="nav">${nav.map(n=>`<button class="${S.view===n[0]||NAVALIAS[S.view]===n[0]?'on':''}" data-act="nav" data-v="${n[0]}">${ico(n[2])}<span>${n[1]}</span>${n[0]==='notes'&&pend?`<span class="badge">${pend}</span>`:''}${n[0]==='notifications'&&unread?`<span class="badge">${unread}</span>`:''}</button>`).join('')}</nav>
   <div class="foot">Free access. Your school's data stays private to your school.</div></aside>
   <div class="main"><header class="top"><button class="iconbtn menu" data-act="menu" aria-label="Open menu">${ico('menu')}</button><h2>${label}</h2><div class="sp"></div>
-   <span id="pill" class="pill hm ${HAS_STORE?'':'off'}">${HAS_STORE?'Saved':'Session only'}</span>
+   <span id="pill" class="pill hm ${pillOff()}">${pillText()}</span>
    <button class="iconbtn" data-act="theme" aria-label="Switch light or dark mode">${ico(DB.theme==='dark'?'sun':'moon')}</button>
    <button class="iconbtn" data-act="nav" data-v="notifications" aria-label="Notifications">${ico('bell')}${unread?`<span class="dot">${unread}</span>`:''}</button>
    <button class="iconbtn" data-act="nav" data-v="profile" aria-label="Profile"><span class="avatar">${esc(S.user.name.replace(/^(Mr|Mrs|Miss|Dr|Chief)\.?\s+/,'')[0])}</span></button>
@@ -404,24 +408,24 @@ function render(keepScroll){
 
 /* ============ login and sign-up ============ */
 function loginView(){
- const first=DB.users.length===0,mode=S.auth||(first?'signup':'signin'),sn=DB.schools[0].name;
- const form=mode==='signup'?`<form class="lbox" data-form="signup"><h2>${first?'Set up your school':'Create your account'}</h2><p class="mut" style="margin:0 0 18px">${first?'You are the first person here, so you become the school owner. You can choose the administrator afterwards.':'The school approves new staff accounts. You can sign in as soon as yours is approved.'}</p>
-  ${fld('Full name','name',{req:true,attr:'autocomplete="name"'})}${fld('Email','email',{type:'email',req:true,attr:'autocomplete="email"'})}${fld('Phone','phone',{attr:'autocomplete="tel"'})}${fld('Password','pw',{type:'password',req:true,hint:'(at least 8 characters)',attr:'autocomplete="new-password" minlength="8"'})}${fld('Confirm password','pw2',{type:'password',req:true,attr:'autocomplete="new-password"'})}
+ const first=CLOUD?!PUBLIC.owner:DB.users.length===0,mode=S.auth||(first?'signup':'signin'),sn=CLOUD?PUBLIC.name:DB.schools[0].name,lgo=CLOUD?PUBLIC.logo:DB.schools[0].settings.logo;
+ const form=mode==='signup'?`<form class="lbox" data-form="signup"><h2>${first?'Set up your school':'Create your account'}</h2><p class="mut" style="margin:0 0 18px">${first?(CLOUD?'This is the first sign-up, so it creates the school owner account. You need the one-time setup code you created in Supabase. Nobody can become owner without it.':'You are the first person here, so you become the school owner. You can choose the administrator afterwards.'):'The school approves new staff accounts. You can sign in as soon as yours is approved.'}</p>
+  ${first&&CLOUD?fld('Setup code','code',{req:true,attr:'autocomplete="off"'}):''}${fld('Full name','name',{req:true,attr:'autocomplete="name"'})}${fld('Email','email',{type:'email',req:true,attr:'autocomplete="email"'})}${fld('Phone','phone',{attr:'autocomplete="tel"'})}${fld('Password','pw',{type:'password',req:true,hint:'(at least 8 characters)',attr:'autocomplete="new-password" minlength="8"'})}${fld('Confirm password','pw2',{type:'password',req:true,attr:'autocomplete="new-password"'})}
   <button class="btn gold lg" style="width:100%;justify-content:center">${first?'Create school owner account':'Create account'}</button>${first?'':`<p class="sm" style="margin-top:16px">Already have an account? <a href="#" data-act="auth" data-m="signin">Sign in</a></p>`}</form>`
  :`<form class="lbox" data-form="login"><h2>Sign in</h2><p class="mut" style="margin:0 0 18px">Staff use their email. Students use their admission number and PIN.</p>
   ${fld('Email or admission number','email',{type:'text',req:true,attr:'autocomplete="username" id="lemail"'})}${fld('Password','pw',{type:'password',req:true,attr:'autocomplete="current-password" id="lpw"'})}
   <button class="btn pri lg" style="width:100%;justify-content:center">Sign in</button><p class="sm" style="margin-top:16px">New staff member? <a href="#" data-act="auth" data-m="signup">Create your account</a></p><p class="sm mut">Forgot your password? Ask the administrator to give you a temporary one.</p></form>`;
  return`<div class="login"><section class="lhero"><div class="brand" style="padding:0;font-size:26px">${LOGO(40)}EduVanta</div>
- <div style="position:relative;z-index:1">${DB.schools[0].settings.logo?`<img src="${DB.schools[0].settings.logo}" alt="" style="width:64px;height:64px;object-fit:contain;border-radius:12px;background:#fff;margin-bottom:16px;display:block">`:''}<h1>${esc(sn)}</h1><p>Staff attendance, classroom activity, timetables and a permanent lesson note bank, in one place.</p></div>
+ <div style="position:relative;z-index:1">${lgo?`<img src="${lgo}" alt="" style="width:64px;height:64px;object-fit:contain;border-radius:12px;background:#fff;margin-bottom:16px;display:block">`:''}<h1>${esc(sn)}</h1><p>Staff attendance, classroom activity, timetables and a permanent lesson note bank, in one place.</p></div>
  <div class="lpoints"><div>Clock in with location checks and see late arrivals as they happen</div><div>Lesson notes with version history, approval and a searchable bank</div><div>Room for the whole staff, with roles you choose</div></div></section>
  <section class="lform">${form}</section></div>`}
 
-FORMS.login=async d=>{const em=d.email.trim().toLowerCase(),u=DB.users.find(x=>x.email.toLowerCase()===em);
+FORMS.login=async d=>{if(CLOUD)return cloudLogin(d);const em=d.email.trim().toLowerCase(),u=DB.users.find(x=>x.email.toLowerCase()===em);
  if(!u||!(await checkPw(u,d.pw)))return toast('That email and password do not match. Check them and try again.','bad');
  if(u.status==='pending')return toast('Your account is waiting for approval from the school. You will be able to sign in once it is approved.','bad');
  if(!u.active)return toast('This account is switched off. Ask the school administrator.','bad');
  DB.session=u.id;S.user=u;S.view='dashboard';S.params={};logAct(`${u.name} signed in`);persist();render()};
-FORMS.signup=async d=>{const em=d.email.trim().toLowerCase();
+FORMS.signup=async d=>{if(CLOUD)return cloudSignup(d);const em=d.email.trim().toLowerCase();
  if(d.pw.length<8)return toast('Use a password with at least 8 characters.','bad');
  if(d.pw!==d.pw2)return toast('The two passwords do not match.','bad');
  if(DB.users.some(u=>u.email.toLowerCase()===em))return toast('An account with this email already exists. Sign in instead.','bad');
@@ -565,11 +569,11 @@ FORMS.ai=async(d,f)=>{const b=$('#aibtn');b.disabled=true;b.textContent='Generat
 /* ---- common: notifications, profile, settings ---- */
 COMMON.notifications=()=>{const L=DB.notifs.filter(n=>n.to===S.user.id).sort((a,b)=>b.ts-a.ts);
  return page('Notifications','Announcements, reminders and alerts.',L.some(n=>!n.read)?btn('Mark all as read','notifAll'):'',card('',`<div class="list">${L.map(n=>`<div class="item ${n.read?'':'unread'}"><div class="sp"><div class="t">${esc(n.title)}</div><div class="sm mut">${esc(n.body)}</div></div>${chip(n.type,n.type==='Alert'?'warn':'')}<span class="sm mut">${fmtTs(n.ts)}</span>${n.read?'':btn('Mark read','notifRead','sm','data-id="'+n.id+'"')}</div>`).join('')||empty('You are all caught up','New announcements will show here.')}</div>`))};
-COMMON.profile=()=>{const u=S.user;return page('Profile','','',`<div class="grid g2">${card('Your details',`<form data-form="profile">${fld('Full name','name',{value:u.name,req:true})}${fld('Phone','phone',{value:u.phone})}<label class="f">Email<input type="text" value="${esc(u.email)}" disabled></label><label class="f">${u.role==='student'?'Admission number':'Staff ID'}<input type="text" value="${esc(u.staffId)}" disabled></label><button class="btn pri">Save changes</button></form>`)}
+COMMON.profile=()=>{const u=S.user;return page('Profile','','',`<div class="grid g2">${card('Your details',`<form data-form="profile">${fld('Full name','name',{value:u.name,req:true})}${fld('Phone','phone',{value:u.phone})}${u.role==='student'?'':`<label class="f">Email<input type="text" value="${esc(u.email)}" disabled></label>`}<label class="f">${u.role==='student'?'Admission number':'Staff ID'}<input type="text" value="${esc(u.staffId)}" disabled></label><button class="btn pri">Save changes</button></form>`)}
  ${card('Change password',`<form data-form="password">${fld('Current password','cur',{type:'password',req:true})}${fld('New password','nw',{type:'password',req:true,hint:'(at least 8 characters)'})}<button class="btn pri">Update password</button></form>`)}</div>`)};
 COMMON.settings=()=>{const sc=S.user.school?school():null,sz=JSON.stringify(DB).length;
  return page('Settings','','',card('Appearance',`<div class="row">${btn('Light','setTheme','','data-t="light"')}${btn('Dark','setTheme','','data-t="dark"')}<span class="mut sm">EduVanta keeps its black, white, gold and blue identity in both.</span></div>`)+(['admin','proprietor'].includes(S.user.role)?backupCard():'')+
- card('Storage',`<p class="mut">${HAS_STORE?'Accounts and records are saved in this browser on this device.':'This preview cannot save between visits, so data lasts for this session only.'} Staff signing in from other phones or computers need the Supabase connection. This device is using ${bytes(sz)}.</p>${S.user.role==='proprietor'?btn('Erase all school data','resetOpen','bad'):''}`))};
+ card('Storage',`<p class="mut">${CLOUD?`Everything is saved in the school's online database, so it is there on any phone or computer you sign in from. ${SYNC_LABEL==='Offline'?'You are offline right now, so recent changes will upload when you reconnect.':''}`:`${HAS_STORE?'Accounts and records are saved in this browser on this device.':'This preview cannot save between visits, so data lasts for this session only.'} This device is using ${bytes(sz)}.`}</p>${S.user.role==='proprietor'&&!CLOUD?btn('Erase all school data','resetOpen','bad'):''}`))};
 /* ============ administrator views ============ */
 function perfRows(){return teachers(true).map(t=>({t,s:teacherStats(t.id)}))}
 const dayPct=d=>{const T=teachers(true),A=mine('attendance').filter(a=>a.date===d&&a.status!=='absent');return pct(A.length,T.length)};
@@ -731,7 +735,7 @@ VIEWS['super:config']=()=>{const c=DB.config;return page('System configuration',
 const A_=(k,f)=>ACT[k]=f;
 A_('nav',d=>go(d.v));A_('auth',d=>{S.auth=d.m;render()});A_('menu',()=>{S.menu=!S.menu;render(true)});A_('close',closeModal);
 A_('theme',()=>{DB.theme=DB.theme==='dark'?'light':'dark';persist();render(true)});A_('setTheme',d=>{DB.theme=d.t;persist();render(true)});
-A_('logout',()=>{DB.session=null;S.user=null;persist();render()});
+A_('logout',()=>{if(CLOUD)return cloudLogout();DB.session=null;S.user=null;persist();render()});
 A_('fill',d=>{$('#lemail').value=d.e;$('#lpw').value=d.p;$('#lpw').focus()});
 A_('tab',d=>{S.tab[d.k]=d.v;S.f.pg=0;render(true)});A_('tabBack',()=>go('notes'));A_('ttmode',d=>{S.ttMode=d.m;render(true)});
 A_('notifAll',()=>{DB.notifs.filter(n=>n.to===S.user.id).forEach(n=>n.read=true);persist();render(true)});
@@ -793,15 +797,17 @@ A_('nudge',d=>{notify(d.id,'Please clock in','You have not clocked in today. If 
 A_('staffAdd',()=>{const cl=mine('classes'),sb=mine('subjects');modal('Add a teacher',`<form data-form="staffAdd"><div class="fgrid">${fld('Full name','name',{req:true})}${fld('Email','email',{type:'email',req:true})}${fld('Phone','phone')}${fld('Temporary password','pw',{value:'teach123',req:true,hint:'(they can change it)'})}</div>${fld('First subject','subjectId',{opts:sb.map(s=>({v:s.id,l:s.name}))})}<div class="f"><b style="font-size:13px">Classes</b>${cl.map(c=>`<label class="check"><input type="checkbox" name="c_${c.id}">${esc(c.name)}</label>`).join('')}</div><div class="acts"><button type="button" class="btn" data-act="close">Cancel</button><button class="btn pri">Add teacher</button></div></form>`,true)});
 FORMS.staffAdd=async d=>{if(DB.users.some(u=>u.email.toLowerCase()===d.email.trim().toLowerCase()))return toast('That email is already in use.','bad');if(d.pw.length<6)return toast('Use a password with at least 6 characters.','bad');
  const n=String(people().length+1).padStart(3,'0'),u={id:uid(),school:sid(),role:'teacher',name:d.name.trim(),email:d.email.trim(),pw:await hp(d.pw),staffId:'STF-'+n,phone:d.phone,active:true,status:'active',assign:Object.keys(d).filter(k=>k.startsWith('c_')).map(k=>({classId:k.slice(2),subjectId:d.subjectId}))};
- DB.users.push(u);notify(u.id,'Welcome to EduVanta','Your account is ready. Clock in each day and submit your weekly lesson notes.','Info');logAct(`Added teacher ${u.name}`);closeModal();persist();toast('Teacher added','ok');render(true)};
+ if(CLOUD){if(!(await cloudCreateStaff(u,d.pw)))return}else DB.users.push(u);notify(u.id,'Welcome to EduVanta','Your account is ready. Clock in each day and submit your weekly lesson notes.','Info');logAct(`Added teacher ${u.name}`);closeModal();persist();toast('Teacher added','ok');render(true)};
 A_('staffEdit',d=>staffModal(d.id));
 A_('staffToggle',d=>{const t=byId('users',d.id);t.active=!t.active;persist();render(true)});
 FORMS.assignAdd=(d,f)=>{const t=byId('users',f.dataset.id);if((t.assign||[]).some(a=>a.classId===d.classId&&a.subjectId===d.subjectId))return toast('That assignment already exists.','bad');t.assign=[...(t.assign||[]),{classId:d.classId,subjectId:d.subjectId}];persist();staffModal(t.id);render(true)};
 A_('assignDel',d=>{const t=byId('users',d.id);t.assign.splice(Number(d.i),1);persist();staffModal(t.id);render(true)});
-A_('resetPw',async d=>{const t=byId('users',d.id),tmp=Math.random().toString(36).slice(2,6)+Math.random().toString(36).slice(2,6).toUpperCase()+'7';t.pw=await hp(tmp);persist();modal('Temporary password',`<p>Give this to ${esc(t.name)}. They should change it in Profile after signing in.</p><p class="serif" style="font-size:28px;user-select:all">${tmp}</p><div class="acts"><button class="btn pri" data-act="close">Done</button></div>`)});
+A_('resetPw',async d=>{const t=byId('users',d.id),tmp=Math.random().toString(36).slice(2,6)+Math.random().toString(36).slice(2,6).toUpperCase()+'7';
+ if(CLOUD){try{await adminCall({action:'resetPassword',userId:t.id,password:tmp})}catch(e){return toast(friendly(e),'bad')}}else{t.pw=await hp(tmp);persist()}
+ modal('Temporary password',`<p>Give this to ${esc(t.name)}. They should change it in Profile after signing in.</p><p class="serif" style="font-size:28px;user-select:all">${tmp}</p><div class="acts"><button class="btn pri" data-act="close">Done</button></div>`)});
 A_('staffApprove',d=>{const u=byId('users',d.id);u.status='active';u.active=true;notify(u.id,'Your account is approved','Welcome. Clock in each day and submit your weekly lesson notes.','Info');logAct(`${S.user.name} approved ${u.name}`);persist();toast(`${u.name} approved`,'ok');render(true)});
 A_('staffDelAsk',d=>confirmBox('Decline this account?',`${esc(byId('users',d.id).name)} will be removed and will need to sign up again.`,'staffDel','data-id="'+d.id+'"'));
-A_('staffDel',d=>{DB.users=DB.users.filter(u=>u.id!==d.id);closeModal();persist();render(true)});
+A_('staffDel',async d=>{if(CLOUD){try{await adminCall({action:'deleteUser',userId:d.id})}catch(e){return toast(friendly(e),'bad')}if(SNAP.users)SNAP.users.delete(d.id)}DB.users=DB.users.filter(u=>u.id!==d.id);closeModal();persist();render(true)});
 A_('pg',d=>{S.f.pg=Math.max(0,(S.f.pg||0)+Number(d.d));$('#stafflist').innerHTML=staffList()});
 A_('roleOpen',d=>{const u=byId('users',d.id);modal(`Role for ${esc(u.name)}`,`<form data-form="role" data-id="${u.id}">${fld('Role','role',{opts:[{v:'teacher',l:'Teacher'},{v:'admin',l:'Administrator, runs the school day to day'},{v:'proprietor',l:'Owner, sees school-wide reports and chooses administrators'}],value:u.role})}<p class="sm mut">Administrators approve staff and lesson notes, manage the timetable and attendance. Only owners can change roles.</p><div class="acts"><button type="button" class="btn" data-act="close">Cancel</button><button class="btn pri">Save role</button></div></form>`)});
 FORMS.role=(d,f)=>{if(S.user.role!=='proprietor')return toast('Only the owner can change roles.','bad');const u=byId('users',f.dataset.id);if(u.id===S.user.id)return toast('You cannot change your own role.','bad');u.role=d.role;if(u.status==='pending'){u.status='active';u.active=true}notify(u.id,'Your role changed',`You are now ${ROLE_CH[d.role][0].toLowerCase()===('owner')?'an owner':ROLE_CH[d.role][0].toLowerCase()}.`,'Info');logAct(`${S.user.name} made ${u.name} ${d.role}`);closeModal();persist();toast('Role saved','ok');render(true)};
@@ -833,7 +839,7 @@ FORMS.schoolSettings=d=>{const sc=school(),s=sc.settings;sc.name=d.name.trim();s
 FORMS.geo=d=>{const s=school().settings;if(d.geofence==='on'&&s.lat==null)return toast('Save the school location first with "Use my current location".','bad');s.radius=Number(d.radius);s.geofence=d.geofence==='on';persist();toast('Premises settings saved','ok');render(true)};
 A_('geoHere',async()=>{toast('Finding your location…');const p=await getPos();if(!p)return toast('Location is blocked here. Allow location access in your browser and try again.','bad');const s=school().settings;s.lat=p.lat;s.lng=p.lng;persist();toast('School location saved','ok');render(true)});
 FORMS.profile=d=>{S.user.name=d.name.trim();S.user.phone=d.phone;persist();toast('Profile saved','ok');render(true)};
-FORMS.password=d=>{if(d.cur!==S.user.pw)return toast('Your current password is not right.','bad');if(d.nw.length<8)return toast('Use at least 8 characters.','bad');S.user.pw=d.nw;persist();toast('Password updated','ok');render(true)};
+FORMS.password=async d=>{if(CLOUD)return cloudPassword(d);if(!(await checkPw(S.user,d.cur)))return toast('Your current password is not right.','bad');if(d.nw.length<8)return toast('Use at least 8 characters.','bad');S.user.pw=await hp(d.nw);persist();toast('Password updated','ok');render(true)};
 
 /* super admin */
 A_('schoolAdd',()=>modal('Register a school',`<form data-form="schoolAdd"><div class="fgrid">${fld('School name','name',{req:true})}${fld('Location','city')}${fld('Short code','code',{req:true,hint:'(3 letters)'})}</div><b class="sm">School administrator</b><div class="fgrid" style="margin-top:8px">${fld('Full name','an',{req:true})}${fld('Email','ae',{type:'email',req:true})}${fld('Temporary password','ap',{value:'admin123',req:true})}</div><div class="acts"><button type="button" class="btn" data-act="close">Cancel</button><button class="btn pri">Register school</button></div></form>`));
@@ -868,11 +874,9 @@ function periodic(){if(!DB||!S.user)return;const u=S.user,today=TODAY(),now=toMi
  if(ch){persist();if(S.view!=='note'&&!$('#modal.on'))render(true)}}
 setInterval(periodic,30000);
 
-/* ============ start ============ */
-(async()=>{await loadDB();S.user=activeUser();render();setTimeout(periodic,1200)})();
 /* ============ students, assessments and CBT ============ */
 const DEFCOMPS=[{key:'c1',name:'First CA',max:10},{key:'c2',name:'Second CA',max:10},{key:'c3',name:'Assignment',max:10},{key:'c4',name:'Examination',max:70}];
-const COMP=()=>{const s=school().settings;if(!s.comps)s.comps=JSON.parse(JSON.stringify(DEFCOMPS));return s.comps};
+const COMP=()=>school().settings.comps||DEFCOMPS;
 const compTotal=()=>COMP().reduce((a,c)=>a+Number(c.max||0),0)||100;
 const GRADES=[[75,'A1','Excellent'],[70,'B2','Very good'],[65,'B3','Good'],[60,'C4','Credit'],[55,'C5','Credit'],[50,'C6','Credit'],[45,'D7','Pass'],[40,'E8','Pass'],[0,'F9','Fail']];
 const gradeOf=p=>GRADES.find(g=>p>=g[0]);
@@ -900,18 +904,23 @@ function studentsPage(){const ids=myClassIds(),cl=ids.map(i=>({v:i,l:nm('classes
 function stuList(c,q){const L=students().filter(s=>s.classId===c&&(!q||(s.name+s.staffId).toLowerCase().includes(q))).sort((a,b)=>a.name.localeCompare(b.name));
  return table(['Name','Admission number','Status',''],L.slice(0,150).map(s=>tr([`<b>${esc(s.name)}</b>`,esc(s.staffId),s.active===false?chip('Inactive'):chip('Active','ok'),`<div class="row" style="flex-wrap:nowrap;gap:6px">${btn('New PIN','stuReset','sm','data-id="'+s.id+'"')}${S.user.role!=='teacher'?btn('Move class','stuMove','sm','data-id="'+s.id+'"'):''}${btn(s.active===false?'Activate':'Deactivate','stuToggle','sm','data-id="'+s.id+'"')}</div>`])))+`<p class="sm mut">${L.length} student${L.length===1?'':'s'}. Students sign in with their admission number and PIN.</p>`}
 VIEWS['teacher:students']=VIEWS['admin:students']=studentsPage;
-function nextAdm(){const code=school().code||'SCH',yy=String(new Date().getFullYear()).slice(2);let n=students().length+1,a;do{a=`${code}/${yy}/${String(n++).padStart(3,'0')}`}while(DB.users.some(u=>u.email.toLowerCase()===a.toLowerCase()));return a}
-async function makeStudent(name,adm,classId){const pin=randPin(),a=(adm||nextAdm()).trim();if(DB.users.some(u=>u.email.toLowerCase()===a.toLowerCase()))return null;
- const u={id:uid(),school:sid(),role:'student',name:name.trim(),email:a,staffId:a,pw:await hp(pin),classId,active:true,status:'active',phone:''};DB.users.push(u);return{name:u.name,adm:a,pin,cls:nm('classes',classId)}}
+function nextAdm(taken=new Set()){const code=school().code||'SCH',yy=String(new Date().getFullYear()).slice(2);let n=students().length+1,a;do{a=`${code}/${yy}/${String(n++).padStart(3,'0')}`}while(taken.has(a.toLowerCase())||DB.users.some(u=>(u.staffId||'').toLowerCase()===a.toLowerCase()));return a}
+async function makeStudents(items,classId){
+ const used=new Set(students().map(s=>(s.staffId||'').toLowerCase())),usedMail=new Set(students().map(s=>stuEmail(s.staffId||''))),prep=[],failed=[],creds=[];
+ for(const it of items){if(!it.name||!it.name.trim())continue;const typed=(it.adm||'').trim(),adm=typed||nextAdm(used);if(typed&&used.has(typed.toLowerCase())){failed.push(`${it.name}: admission number ${typed} is already used`);continue}if(usedMail.has(stuEmail(adm))){failed.push(`${it.name}: admission number ${adm} is too similar to another one`);continue}used.add(adm.toLowerCase());usedMail.add(stuEmail(adm));prep.push({name:it.name.trim(),adm,pin:randPin()})}
+ if(!CLOUD){for(const p of prep){const u={id:uid(),school:sid(),role:'student',name:p.name,email:p.adm,staffId:p.adm,pw:await hp(p.pin),classId,active:true,status:'active',phone:''};DB.users.push(u);creds.push({name:p.name,adm:p.adm,pin:p.pin,cls:nm('classes',classId)})}return{creds,failed}}
+ for(const part of chunk(prep,50)){let j;try{j=await adminCall({action:'createUsers',users:part.map(p=>({email:stuEmail(p.adm),password:p.pin,role:'student',profile:{name:p.name,staffId:p.adm,classId,phone:''}}))})}catch(e){failed.push(friendly(e));break}
+  j.results.forEach((r,i)=>{const p=part[i];if(r.error){failed.push(`${p.name}: ${r.error}`);return}const u={id:r.id,school:sid(),role:'student',name:p.name,email:stuEmail(p.adm),staffId:p.adm,classId,active:true,status:'active',phone:''};DB.users.push(u);SNAP.users.set(u.id,rowHash(mapOf('users'),u));creds.push({name:p.name,adm:p.adm,pin:p.pin,cls:nm('classes',classId)})})}
+ return{creds,failed}}
 function credsModal(list){S.creds=list;modal('Student sign-in details',`<p class="mut">Keep these safe. PINs are not shown again, but you can issue a new PIN any time.</p>${table(['Name','Class','Admission number','PIN'],list.map(x=>tr([esc(x.name),esc(x.cls),`<b>${esc(x.adm)}</b>`,`<b style="font-size:17px">${x.pin}</b>`])))}<div class="acts"><button class="btn" data-act="credsCsv">Download list</button><button class="btn pri" data-act="close">Done</button></div>`,true)}
 A_('credsCsv',()=>{const L=S.creds||[];dl('student-logins.csv',new Blob(['\ufeff'+[['Name','Class','Admission number','PIN'],...L.map(x=>[x.name,x.cls,x.adm,x.pin])].map(r=>r.map(c=>`"${c}"`).join(',')).join('\n')],{type:'text/csv'}))});
 const clsSel=()=>myClassIds().map(i=>({v:i,l:nm('classes',i)}));
 A_('stuAdd',()=>modal('Add a student',`<form data-form="stuAdd">${fld('Full name','name',{req:true})}<div class="fgrid">${fld('Class','classId',{opts:clsSel(),value:S.f.scls})}${fld('Admission number','adm',{hint:'(leave blank to generate)',ph:nextAdm()})}</div><div class="acts"><button type="button" class="btn" data-act="close">Cancel</button><button class="btn pri">Add student</button></div></form>`));
-FORMS.stuAdd=async d=>{const r=await makeStudent(d.name,d.adm,d.classId);if(!r)return toast('That admission number is already used.','bad');persist();render(true);credsModal([r])};
+FORMS.stuAdd=async d=>{const r=await makeStudents([{name:d.name,adm:d.adm}],d.classId);persist();render(true);if(!r.creds.length)return toast(r.failed[0]||'The student could not be added.','bad');credsModal(r.creds);if(r.failed.length)toast(r.failed[0],'bad')};
 A_('stuBulk',()=>modal('Add several students',`<form data-form="stuBulk">${fld('Class','classId',{opts:clsSel(),value:S.f.scls})}${fld('One student per line','list',{type:'area',rows:9,req:true,hint:'(name, or name and admission number separated by a comma)',ph:'Adebayo Tolu\nOkoro Chiamaka, DAUSS/26/050'})}<div class="acts"><button type="button" class="btn" data-act="close">Cancel</button><button class="btn pri">Add students</button></div></form>`,true));
-FORMS.stuBulk=async d=>{const out=[];for(const line of d.list.split('\n').map(l=>l.trim()).filter(Boolean)){const [n,a]=line.split(',').map(x=>x.trim());if(!n)continue;const r=await makeStudent(n,a,d.classId);if(r)out.push(r)}
- if(!out.length)return toast('No students were added. Check the names and admission numbers.','bad');persist();render(true);credsModal(out)};
-A_('stuReset',async d=>{const s=byId('users',d.id),pin=randPin();s.pw=await hp(pin);persist();credsModal([{name:s.name,adm:s.staffId,pin,cls:nm('classes',s.classId)}])});
+FORMS.stuBulk=async d=>{const items=d.list.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const [n,a]=l.split(',').map(x=>x.trim());return{name:n,adm:a}});const r=await makeStudents(items,d.classId);
+ if(!r.creds.length)return toast(r.failed[0]||'No students were added. Check the names and admission numbers.','bad');persist();render(true);credsModal(r.creds);if(r.failed.length)toast(`${r.failed.length} could not be added: ${r.failed[0]}`,'bad')};
+A_('stuReset',async d=>{const s=byId('users',d.id),pin=randPin();if(CLOUD){try{await adminCall({action:'resetPassword',userId:s.id,password:pin})}catch(e){return toast(friendly(e),'bad')}}else{s.pw=await hp(pin);persist()}credsModal([{name:s.name,adm:s.staffId,pin,cls:nm('classes',s.classId)}])});
 A_('stuToggle',d=>{const s=byId('users',d.id);s.active=s.active===false;persist();render(true)});
 A_('stuMove',d=>{const s=byId('users',d.id);modal(`Move ${esc(s.name)}`,`<form data-form="stuMove" data-id="${s.id}">${fld('New class','classId',{opts:mine('classes').map(c=>({v:c.id,l:c.name})),value:s.classId})}<p class="sm mut">Past results stay with the class they were earned in.</p><div class="acts"><button type="button" class="btn" data-act="close">Cancel</button><button class="btn pri">Move</button></div></form>`)});
 FORMS.stuMove=(d,f)=>{byId('users',f.dataset.id).classId=d.classId;closeModal();persist();render(true)};
@@ -980,9 +989,9 @@ A_('examBegin',d=>{const a=byId('assessments',d.id);if(liveAtt(a.id,S.user.id))r
  DB.attempts.push({id:uid(),school:sid(),assessmentId:a.id,studentId:S.user.id,startedAt:Date.now(),answers:{},order:ids,cur:0,status:'in_progress'});closeModal();persist();go('take',{id:a.id})});
 const deadline=(a,t)=>{let e=t.startedAt+a.duration*60000;if(a.closes)e=Math.min(e,new Date(a.closes).getTime());return e};
 const mmss=ms=>{const s=Math.max(0,Math.floor(ms/1000));return pad(Math.floor(s/60))+':'+pad(s%60)};
-function finishAttempt(a,t){if(t.status==='submitted')return;let sc=0,tot=0;a.questions.forEach(q=>{tot+=Number(q.marks||1);if(t.answers[q.id]===q.answer)sc+=Number(q.marks||1)});t.score=Math.round(sc*100)/100;t.total=tot;t.status='submitted';t.submittedAt=Date.now();persist()}
+function finishAttempt(a,t){if(CLOUD)return cloudSubmit(a,t);if(t.status==='submitted')return;let sc=0,tot=0;a.questions.forEach(q=>{tot+=Number(q.marks||1);if(t.answers[q.id]===q.answer)sc+=Number(q.marks||1)});t.score=Math.round(sc*100)/100;t.total=tot;t.status='submitted';t.submittedAt=Date.now();persist()}
 VIEWS['student:take']=()=>{const a=byId('assessments',S.params.id),t=a&&liveAtt(a.id,S.user.id);if(!a||!t)return page('Assessment','','',empty('Nothing to show'));
- if(t.status==='submitted'){const pc=Math.round(t.score/t.total*100);return page(esc(a.title),'Submitted','',card('Your answers are saved',a.showResult==='hidden'?`<p>Your teacher will share the result later.</p>`:`<div class="serif" style="font-size:46px">${t.score} <span class="mut" style="font-size:24px">of ${t.total}</span></div><p class="mut">${pc}%</p>`+(a.showResult==='review'?`<div class="list">${t.order.map(id=>a.questions.find(q=>q.id===id)).filter(Boolean).map((q,i)=>`<div class="item" style="align-items:flex-start"><b>${i+1}.</b><div class="sp">${esc(q.text)}<div class="sm">Your answer: ${t.answers[q.id]==null?'none':'ABCDE'[t.answers[q.id]]+'. '+esc(q.options[t.answers[q.id]])}</div><div class="sm" style="color:var(--ok)">Correct: ${'ABCDE'[q.answer]}. ${esc(q.options[q.answer])}</div></div>${t.answers[q.id]===q.answer?chip('Right','ok'):chip('Wrong','bad')}</div>`).join('')}</div>`:'')+`<div class="acts"><button class="btn pri" data-act="nav" data-v="exams">Back to my assessments</button></div>`))}
+ if(t.status==='submitted'){if(t.review)a.questions.forEach(q=>{if(q.answer===undefined&&t.review[q.id]!==undefined)q.answer=t.review[q.id]});const pc=Math.round(t.score/t.total*100);return page(esc(a.title),'Submitted','',card('Your answers are saved',a.showResult==='hidden'?`<p>Your teacher will share the result later.</p>`:`<div class="serif" style="font-size:46px">${t.score} <span class="mut" style="font-size:24px">of ${t.total}</span></div><p class="mut">${pc}%</p>`+(a.showResult==='review'?`<div class="list">${t.order.map(id=>a.questions.find(q=>q.id===id)).filter(Boolean).map((q,i)=>`<div class="item" style="align-items:flex-start"><b>${i+1}.</b><div class="sp">${esc(q.text)}<div class="sm">Your answer: ${t.answers[q.id]==null?'none':'ABCDE'[t.answers[q.id]]+'. '+esc(q.options[t.answers[q.id]])}</div><div class="sm" style="color:var(--ok)">Correct: ${'ABCDE'[q.answer]}. ${esc(q.options[q.answer])}</div></div>${t.answers[q.id]===q.answer?chip('Right','ok'):chip('Wrong','bad')}</div>`).join('')}</div>`:'')+`<div class="acts"><button class="btn pri" data-act="nav" data-v="exams">Back to my assessments</button></div>`))}
  const qs=t.order.map(id=>a.questions.find(q=>q.id===id)).filter(Boolean),i=Math.min(t.cur||0,qs.length-1),q=qs[i];
  return`<div class="card" style="position:sticky;top:64px;z-index:5"><div class="row"><b class="sp">${esc(a.title)}</b><span class="chip gold" id="examtimer" style="font-size:15px">${mmss(deadline(a,t)-Date.now())}</span></div></div>
  ${i===0&&a.instructions?`<div class="card"><b>Instructions</b><p style="margin:.3em 0 0;white-space:pre-wrap">${esc(a.instructions)}</p></div>`:''}
@@ -993,9 +1002,10 @@ A_('ans',d=>{const a=byId('assessments',S.params.id),t=liveAtt(a.id,S.user.id);i
 A_('qnav',d=>{const a=byId('assessments',S.params.id),t=liveAtt(a.id,S.user.id);t.cur=Math.max(0,(t.cur||0)+Number(d.d));persist();render(true);window.scrollTo(0,0)});
 A_('qgo',d=>{const a=byId('assessments',S.params.id),t=liveAtt(a.id,S.user.id);t.cur=Number(d.k);persist();render(true);window.scrollTo(0,0)});
 A_('examAsk',()=>{const a=byId('assessments',S.params.id),t=liveAtt(a.id,S.user.id),un=a.questions.length-Object.keys(t.answers).length;confirmBox('Submit your exam?',un?`You have ${un} unanswered question${un>1?'s':''}. You cannot change your answers after you submit.`:'You cannot change your answers after you submit.','examSubmit')});
-A_('examSubmit',()=>{const a=byId('assessments',S.params.id),t=liveAtt(a.id,S.user.id);finishAttempt(a,t);closeModal();toast('Exam submitted','ok');render()});
-setInterval(()=>{if(!DB||!S.user||S.user.role!=='student'||S.view!=='take')return;const a=byId('assessments',S.params.id),t=a&&liveAtt(a.id,S.user.id);if(!t||t.status!=='in_progress')return;const left=deadline(a,t)-Date.now(),e=$('#examtimer');if(e){e.textContent=mmss(left);e.style.background=left<60000?'var(--bad-soft)':'';e.style.color=left<60000?'var(--bad)':''}
- if(left<=0){finishAttempt(a,t);closeModal();toast('Time is up. Your answers were submitted.','ok');render()}},1000);
+A_('examSubmit',async()=>{const a=byId('assessments',S.params.id),t=liveAtt(a.id,S.user.id);const ok=await finishAttempt(a,t);closeModal();if(CLOUD&&!ok)return;toast('Exam submitted','ok');render()});
+let autoNext=0;
+setInterval(async()=>{if(!DB||!S.user||S.user.role!=='student'||S.view!=='take')return;const a=byId('assessments',S.params.id),t=a&&liveAtt(a.id,S.user.id);if(!t||t.status!=='in_progress')return;const left=deadline(a,t)-Date.now(),e=$('#examtimer');if(e){e.textContent=mmss(left);e.style.background=left<60000?'var(--bad-soft)':'';e.style.color=left<60000?'var(--bad)':''}
+ if(left<=0&&Date.now()>autoNext){autoNext=Date.now()+15000;const ok=await finishAttempt(a,t);closeModal();if(CLOUD&&!ok)return;toast('Time is up. Your answers were submitted.','ok');render()}},1000);
 
 document.addEventListener('change',e=>{const t=e.target;if(t.dataset&&t.dataset.filter==='scls')render(true)});
 document.addEventListener('input',e=>{const t=e.target;if(t.dataset&&t.dataset.filter==='stq'&&$('#stulist')){const c=$('[data-filter=scls]').value;$('#stulist').innerHTML=stuList(c,t.value.toLowerCase())}});
@@ -1063,29 +1073,34 @@ VIEWS['proprietor:results']=VIEWS['admin:results'];
 VIEWS['admin:sheet']=VIEWS['proprietor:sheet']=()=>{const sh=byId('sheets',S.params.id);if(!sh)return empty('Sheet not found');const c={cid:sh.classId,sub:sh.subjectId,ses:sh.sessionId,term:sh.term};
  return page(`${esc(nm('subjects',sh.subjectId))}, ${esc(nm('classes',sh.classId))}`,`${esc(nm('sessions',sh.sessionId))}, ${esc(sh.term)}. Teacher: ${esc(sh.teacherId?nm('users',sh.teacherId):'—')} ${chip(...sheetStatus[sh.status])}`,`<button class="btn" data-act="nav" data-v="results">Back</button>${sh.status==='submitted'?btn('Publish','sheetPublish','gold','data-id="'+sh.id+'"'):''}${sh.status!=='draft'?btn(sh.status==='published'?'Unpublish':'Return to teacher','sheetReturn','','data-id="'+sh.id+'"'):''}`,card('',sheetTable(c,true)+`<div class="row" style="margin-top:12px">${btn(ico('dl')+'Excel','sheetXlsx','sm')}${btn(ico('dl')+'PDF','sheetPdf','sm')}</div>`))};
 A_('sheetOpen',d=>go('sheet',{id:d.id}));
-function publishSheet(sh){sh.status='published';sh.updatedAt=Date.now();sh.history.push({ts:Date.now(),status:'published',by:S.user.id});if(sh.teacherId)notify(sh.teacherId,'Results published',`${nm('subjects',sh.subjectId)}, ${nm('classes',sh.classId)}, ${sh.term}`,'Info');
+function storeRanks(sh){const l=[],M={};stuIn(sh.classId).forEach(s=>{const m=markRec(s.id,sh.subjectId,sh.sessionId,sh.term);if(hasMark(m)){l.push({id:s.id,val:markTotal(m)});M[s.id]=m}});const R=ranks(l);Object.keys(M).forEach(id=>{M[id].pos=R[id];M[id].of=l.length;M[id].updatedAt=Date.now()})}
+function recomputeOverall(cid,ses,term){const D=termData(cid,ses,term,true),n=D.rows.filter(r=>r.avg!==null).length;
+ D.rows.forEach(r=>{const id=`tr_${r.stu.id}_${ses}_${term}`.replace(/\s+/g,'_');let t=mine('termresults').find(x=>x.id===id);
+  if(r.avg===null){if(t)DB.termresults=DB.termresults.filter(x=>x.id!==id);return}
+  if(!t){t={id,school:sid(),studentId:r.stu.id,sessionId:ses,term};DB.termresults.push(t)}t.avg=r.avg;t.pos=r.pos;t.of=n;t.classId=cid})}
+function publishSheet(sh){sh.status='published';sh.updatedAt=Date.now();sh.history.push({ts:Date.now(),status:'published',by:S.user.id});storeRanks(sh);recomputeOverall(sh.classId,sh.sessionId,sh.term);if(sh.teacherId)notify(sh.teacherId,'Results published',`${nm('subjects',sh.subjectId)}, ${nm('classes',sh.classId)}, ${sh.term}`,'Info');
  stuIn(sh.classId).forEach(s=>{if(hasMark(markRec(s.id,sh.subjectId,sh.sessionId,sh.term)))notify(s.id,'Results published',`${nm('subjects',sh.subjectId)}, ${sh.term}`,'Info')})}
 A_('sheetPublish',d=>{publishSheet(byId('sheets',d.id));persist();toast('Published. Students can now see these results.','ok');render(true)});
 A_('publishAll',()=>{const x=rcx();let n=0;mine('sheets').filter(s=>s.classId===x.cid&&s.sessionId===x.ses&&s.term===x.term&&s.status==='submitted').forEach(s=>{publishSheet(s);n++});persist();toast(`${n} sheet${n===1?'':'s'} published`,'ok');render(true)});
-A_('sheetReturn',d=>{const sh=byId('sheets',d.id),was=sh.status;sh.status='draft';sh.updatedAt=Date.now();sh.history.push({ts:Date.now(),status:'returned',by:S.user.id});if(sh.teacherId)notify(sh.teacherId,was==='published'?'Results unpublished':'Results returned',`${nm('subjects',sh.subjectId)}, ${nm('classes',sh.classId)}. You can edit and submit again.`,'Alert');persist();toast('Returned to the teacher','ok');if(S.view==='sheet')go('results');else render(true)});
+A_('sheetReturn',d=>{const sh=byId('sheets',d.id),was=sh.status;sh.status='draft';sh.updatedAt=Date.now();sh.history.push({ts:Date.now(),status:'returned',by:S.user.id});recomputeOverall(sh.classId,sh.sessionId,sh.term);if(sh.teacherId)notify(sh.teacherId,was==='published'?'Results unpublished':'Results returned',`${nm('subjects',sh.subjectId)}, ${nm('classes',sh.classId)}. You can edit and submit again.`,'Alert');persist();toast('Returned to the teacher','ok');if(S.view==='sheet')go('results');else render(true)});
 const bcRows=()=>{const x=rcx(),D=termData(x.cid,x.ses,x.term,false);return{x,head:['Student','Admission number',...D.subjects.map(s=>s.sb.name),'Average %','Position'],rows:D.rows.map(r=>[r.stu.name,r.stu.staffId,...D.subjects.map(s=>r.per[s.sb.id]?r.per[s.sb.id].total:''),r.avg===null?'':r.avg,r.pos?ord(r.pos):''])}};
 A_('bcXlsx',()=>{const b=bcRows();xlsxOut(fname(`${nm('classes',b.x.cid)}-${b.x.term}-results`),b.head,b.rows)});
 A_('bcPdf',()=>{const b=bcRows();pdfOut(`${school().name}: ${nm('classes',b.x.cid)} results, ${b.x.term}`,b.head,b.rows)});
 
 /* ---- student results and report cards ---- */
 function studentRows(stu,ses,term,pub){const M=mine('marks').filter(m=>m.studentId===stu&&m.sessionId===ses&&m.term===term&&hasMark(m)),out=[];
- M.forEach(m=>{const sh=sheetOf(m.classId,m.subjectId,ses,term);if(pub&&(!sh||sh.status!=='published'))return;const peers=mine('marks').filter(x=>x.classId===m.classId&&x.subjectId===m.subjectId&&x.sessionId===ses&&x.term===term&&hasMark(x)).map(x=>({id:x.studentId,val:markTotal(x)})),R=ranks(peers),p=pctOf(m);out.push({sb:byId('subjects',m.subjectId),m,total:markTotal(m),pct:p,g:gradeOf(p),pos:R[stu],of:peers.length})});
+ M.forEach(m=>{const sh=sheetOf(m.classId,m.subjectId,ses,term);if(pub&&(!sh||sh.status!=='published'))return;const peers=mine('marks').filter(x=>x.classId===m.classId&&x.subjectId===m.subjectId&&x.sessionId===ses&&x.term===term&&hasMark(x)).map(x=>({id:x.studentId,val:markTotal(x)})),R=ranks(peers),p=pctOf(m);out.push({sb:byId('subjects',m.subjectId),m,total:markTotal(m),pct:p,g:gradeOf(p),pos:m.pos||R[stu],of:m.of||peers.length})});
  return out.sort((a,b)=>a.sb.name.localeCompare(b.sb.name))}
 VIEWS['student:results']=()=>{const ses=S.f.rses&&byId('sessions',S.f.rses)?S.f.rses:curSession().id,term=S.f.rterm||curTerm().name,rows=studentRows(S.user.id,ses,term,true),sessions=mine('sessions'),terms=(byId('sessions',ses)||sessions[0]).terms.map(t=>t.name),
  avg=rows.length?Math.round(rows.reduce((a,r)=>a+r.pct,0)/rows.length*10)/10:null;
  const cbt=mine('assessments').filter(a=>a.classId===S.user.classId&&a.type==='cbt'&&a.sessionId===ses&&a.term===term&&liveAtt(a.id,S.user.id)&&liveAtt(a.id,S.user.id).status==='submitted'&&a.showResult!=='hidden');
  return page('My results','Published results for each term.',rows.length?btn(ico('dl')+'Report card (PDF)','reportCard','gold',`data-id="${S.user.id}" data-s="${ses}" data-t="${term}"`):'',
  card('Choose a term',`<div class="fgrid"><label class="f">Session<select data-rf="rses">${opts(sessions.map(s=>({v:s.id,l:s.name})),ses)}</select></label><label class="f">Term<select data-rf="rterm">${opts(terms,term)}</select></label></div>`)+
- card('Term results',rows.length?table(['Subject',...COMP().map(c=>`${esc(c.name)} <span class="mut">/${c.max}</span>`),`Total /${compTotal()}`,'Grade','Remark','Position'],rows.map(r=>tr([`<b>${esc(r.sb.name)}</b>`,...COMP().map(c=>r.m.v[c.key]??'—'),`<b>${r.total}</b>`,chip(r.g[1],r.pct>=40?'ok':'bad'),r.g[2],ord(r.pos)+` of ${r.of}`])))+`<p style="margin-top:12px"><b>Average: ${avg}%</b></p>`:empty('No published results yet','Results show here after your teachers submit them and the school publishes them.'))+
+ card('Term results',rows.length?table(['Subject',...COMP().map(c=>`${esc(c.name)} <span class="mut">/${c.max}</span>`),`Total /${compTotal()}`,'Grade','Remark','Position'],rows.map(r=>tr([`<b>${esc(r.sb.name)}</b>`,...COMP().map(c=>r.m.v[c.key]??'—'),`<b>${r.total}</b>`,chip(r.g[1],r.pct>=40?'ok':'bad'),r.g[2],ord(r.pos)+` of ${r.of}`])))+`<p style="margin-top:12px"><b>Average: ${avg}%</b>${(()=>{const t=mine('termresults').find(x=>x.studentId===S.user.id&&x.sessionId===ses&&x.term===term);return t?`. Position in class: ${ord(t.pos)} of ${t.of}`:''})()}</p>`:empty('No published results yet','Results show here after your teachers submit them and the school publishes them.'))+
  (cbt.length?card('CBT scores',table(['Exam','Subject','Score'],cbt.map(a=>{const t=liveAtt(a.id,S.user.id);return tr([esc(a.title),esc(nm('subjects',a.subjectId)),`${t.score} of ${t.total}`])}))):''))};
 A_('reportCard',async d=>{const stu=byId('users',d.id),rows=studentRows(d.id,d.s,d.t,S.user.role==='student'),D=termData(stu.classId,d.s,d.t,S.user.role==='student'),me=D.rows.find(r=>r.stu.id===d.id),
  head=['Subject',...COMP().map(c=>`${c.name} (${c.max})`),`Total (${compTotal()})`,'Grade','Remark','Position'],body=rows.map(r=>[r.sb.name,...COMP().map(c=>r.m.v[c.key]??''),r.total,r.g[1],r.g[2],ord(r.pos)+' of '+r.of]),
- avg=rows.length?Math.round(rows.reduce((a,r)=>a+r.pct,0)/rows.length*10)/10:0,title=`${school().name}`,sub=`Report card: ${stu.name}, ${nm('classes',stu.classId)}. ${nm('sessions',d.s)}, ${d.t}`,line=`Average: ${avg}%.${me&&me.pos?` Position in class: ${ord(me.pos)} of ${D.rows.filter(r=>r.avg!==null).length}.`:''}`;
+ avg=rows.length?Math.round(rows.reduce((a,r)=>a+r.pct,0)/rows.length*10)/10:0,title=`${school().name}`,sub=`Report card: ${stu.name}, ${nm('classes',stu.classId)}. ${nm('sessions',d.s)}, ${d.t}`,tr=mine('termresults').find(x=>x.studentId===d.id&&x.sessionId===d.s&&x.term===d.t),line=`Average: ${avg}%.${tr?` Position in class: ${ord(tr.pos)} of ${tr.of}.`:(S.user.role!=='student'&&me&&me.pos?` Position in class: ${ord(me.pos)} of ${D.rows.filter(r=>r.avg!==null).length}.`:'')}`;
  if(!rows.length)return toast('There are no results to print for this term yet.','bad');
  try{await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js');const doc=new window.jspdf.jsPDF({orientation:'landscape'});const lg=school().settings.logo,cm=cmtOf(d.id,d.s,d.t);if(lg){try{doc.addImage(lg,'PNG',14,8,16,16)}catch(e){}}doc.setFontSize(16);doc.text(title,lg?34:14,16);doc.setFontSize(11);doc.text(sub,lg?34:14,24);
   doc.autoTable({head:[head],body:body.map(r=>r.map(String)),startY:30,styles:{fontSize:9},headStyles:{fillColor:[5,5,6],textColor:[212,175,55]}});const y=doc.lastAutoTable.finalY+8;doc.setFontSize(11);let yy=y;doc.text(line,14,yy);yy+=9;[['Class teacher',cm.teacher],['Principal',cm.principal]].forEach(([l,t])=>{if(t){const ls=doc.splitTextToSize(`${l}'s comment: ${t}`,260);doc.text(ls,14,yy);yy+=ls.length*6+3}});doc.text('Class teacher: ____________________    Principal: ____________________',14,yy+10);doc.save(fname('report-card-'+stu.name)+'.pdf');toast('Report card downloaded','ok')}
@@ -1101,7 +1116,7 @@ async function pdfOut(title,head,rows){try{await loadScript('https://cdnjs.cloud
 RPT.assess={n:'Assessment scores (CBT)',f:r=>({head:['Date','Class','Subject','Assessment','Student','Score','Out of','Percent'],rows:mine('attempts').filter(t=>t.status==='submitted'&&!t.voided&&iso(new Date(t.submittedAt))>=r.from&&iso(new Date(t.submittedAt))<=r.to).sort((a,b)=>a.submittedAt-b.submittedAt).map(t=>{const a=byId('assessments',t.assessmentId)||{};return[iso(new Date(t.submittedAt)),nm('classes',a.classId),nm('subjects',a.subjectId),a.title,nm('users',t.studentId),t.score,t.total,pct(t.score,t.total)]})})};
 
 /* ---- backup and restore ---- */
-const backupCard=()=>card('Back up your data',`<p class="mut">Download a copy of everything: staff, students, lesson notes, assessments and results. ${DB.lastBackup?'Last backup: '+fmtTs(DB.lastBackup)+'.':'You have not made a backup yet.'} Make one after each exam and each time results are published.</p><div class="row">${btn(ico('dl')+'Download backup','backup','gold')}<label class="btn" style="cursor:pointer">${ico('up')}Restore from a backup<input type="file" accept=".json,application/json" data-restore class="hide"></label></div><p class="sm mut">Keep backup files private. They hold everyone's details, with passwords scrambled.</p>`);
+const backupCard=()=>card('Back up your data',`<p class="mut">Download a copy of everything: staff, students, lesson notes, assessments and results. ${DB.lastBackup?'Last backup: '+fmtTs(DB.lastBackup)+'.':'You have not made a backup yet.'} Make one after each exam and each time results are published.</p><div class="row">${btn(ico('dl')+'Download backup','backup','gold')}${CLOUD?'':`<label class="btn" style="cursor:pointer">${ico('up')}Restore from a backup<input type="file" accept=".json,application/json" data-restore class="hide"></label>`}</div><p class="sm mut">Keep backup files private. They hold everyone's details, with passwords scrambled.</p>`);
 A_('backup',()=>{DB.lastBackup=Date.now();persist();dl(`eduvanta-backup-${iso(new Date())}.json`,new Blob([JSON.stringify(DB)],{type:'application/json'}));toast('Backup downloaded. Store it somewhere safe.','ok');render(true)});
 A_('restoreDo',()=>{DB=S.restore;DB.session=null;S.user=null;S.restore=null;closeModal();persist();render();toast('Backup restored. Sign in again.','ok')});
 FORMS.comps=d=>{const C=[0,1,2,3].map(i=>({key:'c'+(i+1),name:(d['n'+i]||'').trim(),max:Number(d['m'+i])})).filter(c=>c.name);if(!C.length||C.some(c=>!(c.max>0)))return toast('Give each column a name and a maximum above zero.','bad');school().settings.comps=C;persist();toast('Result structure saved','ok');render(true)};
@@ -1130,6 +1145,204 @@ const HELP={
  proprietor:['Open Staff and roles to approve staff and choose who the administrator is.','School overview, Staff performance and Attendance analytics show how the school is doing.','Under Assessments you can see every exam and assignment. Under Academic results you can publish result sheets.','Download a backup from Settings regularly.'],
  student:['Sign in with your admission number and the PIN your teacher gave you.','Open My assessments. When an exam is open, tap Start. The timer begins straight away.','Pick an answer for each question. Your answers save as you go. Do not leave the exam screen, because your teacher can see when you do.','Tap Submit exam when you finish. The exam also submits itself when time is up.','See published results under My results.']};
 COMMON.help=()=>page('Help','Simple steps for your role.','',card('Getting started',`<ol style="padding-left:20px;line-height:1.8">${(HELP[S.user.role]||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ol>`)+(S.user.role==='teacher'||S.user.role==='admin'?card('Good to know','<p class="mut">Everything you enter is saved on this device. Ask the owner or administrator to download a backup regularly.</p>'):''));
+/* ============ Supabase cloud layer ============ */
+/* Only the publishable (public) key is used here. Security comes from the database rules (Row Level Security).
+   Anything needing the secret key (creating accounts, resetting passwords) runs in the admin-users Edge Function. */
+const SBK='eduvanta:sb',CACHE='eduvanta:cache',FLAGS='eduvanta:flags';
+let SB={tok:null,ref:null,exp:0,uid:null},PUBLIC={name:'D-Ace Ultimate Secondary School',logo:null,owner:false},SNAP={},CUR={},SYNCING=false,SYNC_LABEL='Saved',pollT=null,syncT=null,again=false,refreshing=null,warned={};
+const pillText=()=>CLOUD?SYNC_LABEL:(HAS_STORE?'Saved':'Session only');
+const pillOff=()=>CLOUD?(/Offline|Not/.test(SYNC_LABEL)?'off':''):(HAS_STORE?'':'off');
+const stuEmail=a=>a.trim().toLowerCase().replace(/[^a-z0-9]+/g,'.').replace(/^\.+|\.+$/g,'')+'@'+STU_DOMAIN;
+const lsGet=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,v);return true}catch(e){return false}};
+const lsDel=k=>{try{localStorage.removeItem(k)}catch(e){}};
+function emptyDB(){let flags={};try{flags=JSON.parse(lsGet(FLAGS)||'{}')}catch(e){}
+ return{v:3,session:null,theme:lsGet('eduvanta:theme')||((window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light'),schools:[],users:[],classes:[],subjects:[],sessions:[],slots:[],attendance:[],lessons:[],notes:[],notifs:[],audit:[],announce:[],folders:[],activity:[],assessments:[],attempts:[],marks:[],sheets:[],comments:[],termresults:[],akeys:[],flags,config:{free:true,storageCapMB:500,uploadMaxKB:700}}}
+
+/* ---- http ---- */
+async function sbReq(path,o={}){
+ const{method='GET',body,prefer,auth=true,query,retried}=o,isTok=/\/auth\/v1\/token/.test(path);
+ if(auth&&SB.ref&&SB.exp&&Date.now()>SB.exp-60000&&!isTok)await refreshSession();
+ const h={apikey:CLOUD_KEY,'Content-Type':'application/json'};if(auth&&SB.tok)h.Authorization='Bearer '+SB.tok;if(prefer)h.Prefer=prefer;
+ let r;try{r=await fetch(CLOUD_URL+path+(query?(path.includes('?')?'&':'?')+query:''),{method,headers:h,body:body===undefined?undefined:JSON.stringify(body)})}
+ catch(e){const x=new Error('You appear to be offline.');x.network=true;throw x}
+ if(r.status===401&&auth&&SB.ref&&!retried&&!isTok){await refreshSession();return sbReq(path,{...o,retried:true})}
+ const txt=await r.text();let j=null;try{j=txt?JSON.parse(txt):null}catch(e){j=txt}
+ if(!r.ok){const x=new Error((j&&(j.msg||j.message||j.error_description||j.error))||('Request failed ('+r.status+')'));x.status=r.status;x.code=j&&(j.code||j.error_code);throw x}
+ return j}
+function setSession(j){SB.tok=j.access_token;SB.ref=j.refresh_token||SB.ref;SB.exp=Date.now()+(j.expires_in||3600)*1000;if(j.user&&j.user.id)SB.uid=j.user.id;lsSet(SBK,JSON.stringify(SB))}
+function refreshSession(){if(refreshing)return refreshing;refreshing=sbReq('/auth/v1/token',{method:'POST',auth:false,query:'grant_type=refresh_token',body:{refresh_token:SB.ref}}).then(setSession).finally(()=>{refreshing=null});return refreshing}
+const authLogin=(email,password)=>sbReq('/auth/v1/token',{method:'POST',auth:false,query:'grant_type=password',body:{email,password}});
+const authSignup=(email,password)=>sbReq('/auth/v1/signup',{method:'POST',auth:false,body:{email,password}});
+async function adminCall(body){const r=await fetch(CLOUD_URL+'/functions/v1/admin-users',{method:'POST',headers:{'Content-Type':'application/json',apikey:CLOUD_KEY,Authorization:'Bearer '+SB.tok},body:JSON.stringify(body)}).catch(()=>{const x=new Error('You appear to be offline.');x.network=true;throw x});
+ const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'The school server could not do that. Check the admin-users function is deployed.');return j}
+
+/* ---- row mapping ---- */
+/* Each table keeps a full JSON copy of the record in "data", plus real columns. For anything that matters for
+   security (owner, status, scores) the COLUMN is trusted on read ("ov"), never the JSON copy a user could edit. */
+const MAPS=[
+ {key:'schools',t:'schools',cols:()=>({}),ov:[]},
+ {key:'users',t:'profiles',cols:o=>({role:o.role,status:o.status||(o.active?'active':'pending'),active:!!o.active,class_id:o.classId||null,email:o.email||null,name:o.name||null}),
+  ov:[['role','role'],['status','status'],['active','active'],['class_id','classId'],['email','email'],['name','name']]},
+ {key:'classes',t:'classes',cols:()=>({}),ov:[]},{key:'subjects',t:'subjects',cols:()=>({}),ov:[]},{key:'sessions',t:'sessions',cols:()=>({}),ov:[]},
+ {key:'slots',t:'slots',cols:o=>({teacher_id:o.teacherId,class_id:o.classId}),ov:[['teacher_id','teacherId'],['class_id','classId']]},
+ {key:'attendance',t:'attendance',cols:o=>({user_id:o.userId,day:o.date}),ov:[['user_id','userId'],['day','date']]},
+ {key:'lessons',t:'lessons',cols:o=>({teacher_id:o.teacherId,day:o.date}),ov:[['teacher_id','teacherId'],['day','date']]},
+ {key:'notes',t:'lesson_notes',cols:o=>({teacher_id:o.teacherId,status:o.status}),ov:[['teacher_id','teacherId'],['status','status']]},
+ {key:'notifs',t:'notifications',cols:o=>({to_user:o.to}),ov:[['to_user','to']]},
+ {key:'audit',t:'attendance_audit',cols:()=>({}),ov:[]},{key:'announce',t:'announcements',cols:()=>({}),ov:[]},{key:'activity',t:'activity_log',cols:()=>({}),ov:[]},
+ {key:'folders',t:'note_folders',cols:o=>({teacher_id:o.userId}),ov:[['teacher_id','userId']]},
+ {key:'assessments',t:'assessments',cols:o=>({teacher_id:o.teacherId,class_id:o.classId,status:o.status}),ov:[['teacher_id','teacherId'],['class_id','classId'],['status','status']]},
+ {key:'akeys',t:'assessment_keys',cols:()=>({}),ov:[]},
+ {key:'attempts',t:'attempts',cols:o=>({student_id:o.studentId,assessment_id:o.assessmentId,status:o.status,voided:!!o.voided}),
+  ov:[['student_id','studentId'],['assessment_id','assessmentId'],['status','status'],['voided','voided'],['score','score'],['total','total'],['late','late'],
+      ['submitted_at','submittedAt',v=>v?Date.parse(v):undefined],['started_at','startedAt',v=>v?Date.parse(v):undefined]]},
+ {key:'marks',t:'marks',cols:o=>({student_id:o.studentId,class_id:o.classId,subject_id:o.subjectId,session_id:o.sessionId,term:o.term}),
+  ov:[['student_id','studentId'],['class_id','classId'],['subject_id','subjectId'],['session_id','sessionId'],['term','term']]},
+ {key:'sheets',t:'sheets',cols:o=>({class_id:o.classId,subject_id:o.subjectId,session_id:o.sessionId,term:o.term,status:o.status,teacher_id:o.teacherId||null}),
+  ov:[['class_id','classId'],['subject_id','subjectId'],['session_id','sessionId'],['term','term'],['status','status'],['teacher_id','teacherId']]},
+ {key:'comments',t:'comments',cols:o=>({student_id:o.studentId}),ov:[['student_id','studentId']]},
+ {key:'termresults',t:'termresults',cols:o=>({student_id:o.studentId}),ov:[['student_id','studentId']]}];
+function toRow(m,o){const data={...o};delete data.pw;
+ if(m.t==='assessments'&&Array.isArray(data.questions))data.questions=data.questions.map(q=>{const c={...q};delete c.answer;return c});   // the answer key never goes in the student-readable row
+ return{id:o.id,school_id:m.t==='schools'?o.id:(o.school||'dace'),...m.cols(o),data}}
+function fromRow(m,r){const o={...r.data,id:r.id};
+ for(const [c,f,cv] of m.ov){const v=r[c];if(v===undefined)continue;if((v===null||v===false)&&o[f]===undefined)continue;const x=cv?cv(v):v;if(x!==undefined)o[f]=x}
+ return o}
+/* Answer keys live in their own table that students cannot read. Teachers and management merge them back in locally. */
+function deriveKeys(){DB.akeys=DB.akeys||[];(DB.assessments||[]).forEach(a=>{const qs=a.questions||[];if(!qs.some(q=>q.answer!==undefined))return;const ans={};qs.forEach(q=>{if(q.answer!==undefined)ans[q.id]=q.answer});
+  const k=DB.akeys.find(x=>x.id===a.id);if(!k)DB.akeys.push({id:a.id,school:a.school||'dace',answers:ans});else if(JSON.stringify(k.answers)!==JSON.stringify(ans))k.answers=ans})}
+function mergeKeys(){(DB.akeys||[]).forEach(k=>{const a=(DB.assessments||[]).find(x=>x.id===k.id);if(!a)return;(a.questions||[]).forEach(q=>{if(q.answer===undefined&&k.answers&&k.answers[q.id]!==undefined)q.answer=k.answers[q.id]})})}
+function hs(s){let a=5381,b=0;for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);a=((a<<5)+a+c)|0;b=(Math.imul(b,31)+c)|0}return s.length+':'+a+':'+b}
+const rowHash=(m,o)=>hs(JSON.stringify(toRow(m,o)));
+const mapOf=k=>MAPS.find(m=>m.key===k);
+
+/* ---- load everything this person is allowed to see ---- */
+async function fetchAll(t){const out=[];let off=0;for(;;){const r=await sbReq('/rest/v1/'+t,{query:`select=*&order=id.asc&limit=1000&offset=${off}`});out.push(...r);if(r.length<1000)break;off+=1000}return out}
+async function loadRemoteAll(local){
+ const res=await Promise.all(MAPS.map(m=>fetchAll(m.t))),base=local||emptyDB();SNAP={};CUR={};
+ MAPS.forEach((m,i)=>{const snap=new Map(),have=new Set((base[m.key]||[]).map(o=>o.id));let cur='';if(!local)base[m.key]=[];
+  res[i].forEach(r=>{const o=fromRow(m,r);snap.set(o.id,rowHash(m,o));if(!have.has(o.id))base[m.key].push(o);if(r.updated_at>cur)cur=r.updated_at});
+  SNAP[m.key]=snap;CUR[m.t]=cur||'1970-01-01T00:00:00+00:00'});
+ DB=base;mergeKeys()}
+async function loadPublic(){try{const j=await sbReq('/rest/v1/rpc/public_info',{method:'POST',auth:false,body:{}});if(j&&typeof j==='object')PUBLIC={...PUBLIC,...j}}catch(e){}}
+
+/* ---- save changes ---- */
+function cacheSave(){try{lsSet('eduvanta:theme',DB.theme);lsSet(FLAGS,JSON.stringify(DB.flags||{}));
+ lsSet(CACHE,JSON.stringify({uid:SB.uid,db:DB,snap:Object.fromEntries(Object.entries(SNAP).map(([k,v])=>[k,[...v]])),cur:CUR}))}catch(e){}}
+function restoreSnap(c){SNAP={};Object.entries(c.snap||{}).forEach(([k,v])=>SNAP[k]=new Map(v));CUR=c.cur||{}}
+function cloudPersist(){SYNC_LABEL='Saving…';setPill('Saving…');clearTimeout(saveT);saveT=setTimeout(cacheSave,400);schedSync()}
+function schedSync(){lsSet(CACHE+':dirty','1');clearTimeout(syncT);syncT=setTimeout(syncUp,1500);if(SYNCING)again=true}
+const chunk=(a,n)=>{const o=[];for(let i=0;i<a.length;i+=n)o.push(a.slice(i,i+n));return o};
+async function pushBatch(m,list,upsert){
+ for(const part of chunk(list,100)){const rows=part.map(x=>toRow(m,x[0])),up={method:'POST',prefer:'resolution=merge-duplicates,return=minimal',query:'on_conflict=id',body:rows};
+  try{await sbReq('/rest/v1/'+m.t,upsert?up:{method:'POST',prefer:'return=minimal',body:rows})}
+  catch(e){let bad=e;
+   if(!upsert&&e.status===409){try{await sbReq('/rest/v1/'+m.t,up);bad=null}catch(e2){bad=e2}}
+   if(bad){if(bad.network||!bad.status||bad.status>=500||bad.status===401)throw bad;console.warn('EduVanta: change not accepted by the server for',m.t,bad.message);warned[m.t]=1}}
+  part.forEach(x=>SNAP[m.key].set(x[0].id,x[1]))}}
+async function pushDelete(m,ids){for(const part of chunk(ids,40)){
+ try{await sbReq('/rest/v1/'+m.t,{method:'DELETE',query:'id=in.('+part.join(',')+')'})}catch(e){if(e.network||!e.status||e.status>=500||e.status===401)throw e;console.warn('EduVanta: delete not accepted for',m.t,e.message)}
+ part.forEach(id=>SNAP[m.key].delete(id))}}
+async function syncUp(){
+ if(!CLOUD||!SB.tok||SYNCING||!DB||!DB.session)return;SYNCING=true;clearTimeout(syncT);let err=null;
+ try{const me0=byId('users',SB.uid);if(me0&&me0.role!=='student')deriveKeys();
+  for(const m of MAPS){const snap=SNAP[m.key]||(SNAP[m.key]=new Map()),ins=[],upd=[],seen=new Set();
+   for(const o of (DB[m.key]||[])){if(!o||!o.id)continue;seen.add(o.id);const h=rowHash(m,o),p=snap.get(o.id);if(p===undefined)ins.push([o,h]);else if(p!==h)upd.push([o,h])}
+   const del=[...snap.keys()].filter(id=>!seen.has(id));
+   if(ins.length)await pushBatch(m,ins,false);if(upd.length)await pushBatch(m,upd,true);if(del.length)await pushDelete(m,del)}}
+ catch(e){err=e}
+ SYNCING=false;
+ if(!err){SYNC_LABEL='Saved';lsDel(CACHE+':dirty');cacheSave();if(Object.keys(warned).length&&!warned._shown){warned._shown=1;toast('Some changes were not accepted by the school server. If this keeps happening, tell the administrator.','bad')}}
+ else if(err.network){SYNC_LABEL='Offline'}
+ else{SYNC_LABEL='Not synced';if(!warned.err){warned.err=1;toast(`Your latest changes could not be saved online (${err.message}). They are kept on this device and will retry.`,'bad')}setTimeout(schedSync,20000)}
+ setPill(SYNC_LABEL);
+ if(again){again=false;schedSync()}}
+
+/* ---- pull other people's changes ---- */
+async function pullChanges(){
+ if(!CLOUD||!SB.tok||!DB||!DB.session||SYNCING||document.hidden)return;let changed=false;
+ try{const res=await Promise.all(MAPS.map(m=>sbReq('/rest/v1/'+m.t,{query:`select=*&updated_at=gt.${encodeURIComponent(CUR[m.t]||'1970-01-01T00:00:00+00:00')}&order=updated_at.asc&limit=1000`})));
+  MAPS.forEach((m,i)=>{const snap=SNAP[m.key]||(SNAP[m.key]=new Map());res[i].forEach(r=>{const o=fromRow(m,r);if(r.updated_at>(CUR[m.t]||''))CUR[m.t]=r.updated_at;
+   const arr=DB[m.key],ix=arr.findIndex(x=>x.id===o.id),h=rowHash(m,o);
+   if(ix>=0){const lh=rowHash(m,arr[ix]);if(lh!==snap.get(o.id))return;if(lh===h){snap.set(o.id,h);return}arr[ix]=o;changed=true}else{arr.push(o);changed=true}
+   snap.set(o.id,h)})})}
+ catch(e){if(e.network){SYNC_LABEL='Offline';setPill('Offline')}return}
+ mergeKeys();const me=byId('users',SB.uid);if(me&&(!me.active||me.status==='pending')){toast('Your account has been switched off.','bad');return cloudLogout(true)}
+ if(changed){cacheSave();softRender()}}
+function softRender(){const a=document.activeElement,typing=a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName);if(typing||$('#modal.on')||['note','take'].includes(S.view))return;render(true)}
+const startPolling=()=>{clearInterval(pollT);pollT=setInterval(pullChanges,30000)};
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&CLOUD&&DB&&DB.session)pullChanges()});
+window.addEventListener('online',()=>{if(CLOUD&&DB&&DB.session){SYNC_LABEL='Saving…';setPill('Saving…');schedSync();pullChanges()}});
+window.addEventListener('offline',()=>{if(CLOUD){SYNC_LABEL='Offline';setPill('Offline')}});
+
+/* ---- start, sign in, sign up, sign out ---- */
+function clearAuth(){SB={tok:null,ref:null,exp:0,uid:null};lsDel(SBK);lsDel(CACHE);lsDel(CACHE+':dirty');SNAP={};CUR={}}
+async function cloudBoot(){
+ HAS_STORE=true;DB=emptyDB();
+ try{const s=JSON.parse(lsGet(SBK)||'null');if(s&&s.ref)SB={tok:s.tok,ref:s.ref,exp:s.exp,uid:s.uid}}catch(e){}
+ if(!SB.ref){await loadPublic();return}
+ let cache=null;try{cache=JSON.parse(lsGet(CACHE)||'null')}catch(e){}
+ const same=!!cache&&cache.uid===SB.uid,dirty=same&&lsGet(CACHE+':dirty')==='1';
+ try{if(Date.now()>SB.exp-60000)await refreshSession();await loadRemoteAll(dirty?cache.db:null);DB.session=SB.uid;startPolling();SYNC_LABEL='Saved';if(dirty)schedSync()}
+ catch(e){if(e.network&&same){DB=cache.db;restoreSnap(cache);DB.session=SB.uid;SYNC_LABEL='Offline';startPolling()}else{clearAuth();DB=emptyDB();await loadPublic()}}}
+const getOwnProfile=async()=>{const r=await sbReq('/rest/v1/profiles',{query:`select=*&id=eq.${SB.uid}`});return r&&r[0]};
+const friendly=e=>e.network?'You appear to be offline. Check your internet and try again.':/invalid login|invalid_credentials/i.test((e.message||'')+(e.code||''))?'That email (or admission number) and password do not match. Check them and try again.':e.message||'Something went wrong. Try again.';
+async function finishLogin(){await loadRemoteAll(null);DB.session=SB.uid;S.user=activeUser();if(!S.user)throw new Error('Your account could not be loaded.');S.view='dashboard';S.params={};S.auth=null;SYNC_LABEL='Saved';startPolling();logAct(`${S.user.name} signed in`);cloudPersist();render()}
+async function cloudLogin(d){
+ const id=d.email.trim(),email=id.includes('@')?id.toLowerCase():stuEmail(id);toast('Signing in…');
+ try{setSession(await authLogin(email,d.pw));const p=await getOwnProfile();
+  if(!p){await cloudSignOutQuiet();return toast('Your sign-in worked, but your school profile was not found. Ask the administrator.','bad')}
+  if(p.status==='pending'){await cloudSignOutQuiet();return toast('Your account is waiting for approval from the school. You will be able to sign in once it is approved.','bad')}
+  if(!p.active){await cloudSignOutQuiet();return toast('This account is switched off. Ask the school administrator.','bad')}
+  await finishLogin()}
+ catch(e){await cloudSignOutQuiet();toast(friendly(e),'bad')}}
+async function cloudSignOutQuiet(){try{if(SB.tok)await sbReq('/auth/v1/logout',{method:'POST'})}catch(e){}clearAuth();DB=emptyDB()}
+async function cloudSignup(d){
+ const email=d.email.trim().toLowerCase();
+ if(d.pw.length<8)return toast('Use a password with at least 8 characters.','bad');
+ if(d.pw!==d.pw2)return toast('The two passwords do not match.','bad');
+ await loadPublic();const first=!PUBLIC.owner;
+ if(first&&!(d.code||'').trim())return toast('Enter the setup code you created in Supabase.','bad');
+ toast('Creating your account…');
+ try{let j;try{j=await authSignup(email,d.pw)}catch(e){if(/registered|exists/i.test((e.message||'')+(e.code||'')))j=await authLogin(email,d.pw);else throw e}
+  if(!j.access_token)return toast('The school server needs email confirmation switched off for sign-up to work. Tell the owner (see the setup notes).','bad');
+  setSession(j);
+  if(first){   // the ONLY way to become owner: a correct one-time setup code, checked on the server
+   await sbReq('/rest/v1/rpc/claim_owner',{method:'POST',body:{setup_code:d.code.trim(),p_name:d.name.trim(),p_phone:d.phone||''}});
+   PUBLIC.owner=true;await finishLogin();return}
+  let p=await getOwnProfile();
+  if(!p){const o={id:SB.uid,school:'dace',role:'teacher',name:d.name.trim(),email,staffId:'STF-'+Date.now().toString(36).slice(-4).toUpperCase(),phone:d.phone||'',active:false,status:'pending',assign:[]};
+   await sbReq('/rest/v1/profiles',{method:'POST',prefer:'return=minimal',body:toRow(mapOf('users'),o)})}
+  await cloudSignOutQuiet();S.auth='signin';render();toast('Account created. You can sign in once the school approves it.','ok')}
+ catch(e){await cloudSignOutQuiet();toast(friendly(e),'bad');await loadPublic();render()}}
+async function flush(){for(let i=0;i<60&&SYNCING;i++)await new Promise(r=>setTimeout(r,100));await syncUp();return lsGet(CACHE+':dirty')!=='1'}
+async function cloudLogout(force){
+ if(!force){if(!(await flush())){return toast('Some changes are not saved online yet. Reconnect to the internet, wait for "Saved", then sign out.','bad')}}
+ clearInterval(pollT);await cloudSignOutQuiet();S.user=null;S.view='dashboard';S.params={};S.auth=null;await loadPublic();render()}
+async function cloudPassword(d){
+ try{setSession(await authLogin(S.user.email,d.cur))}catch(e){return toast('Your current password is not right.','bad')}
+ if(d.nw.length<8)return toast('Use at least 8 characters.','bad');
+ try{await sbReq('/auth/v1/user',{method:'PUT',body:{password:d.nw}});toast('Password updated','ok')}catch(e){toast(friendly(e),'bad')}}
+async function cloudCreateStaff(u,pw){
+ try{const j=await adminCall({action:'createUsers',users:[{email:u.email.toLowerCase(),password:pw,role:'teacher',profile:{name:u.name,staffId:u.staffId,phone:u.phone,assign:u.assign||[]}}]}),r=j.results[0];
+  if(r.error){toast(r.error,'bad');return false}
+  u.id=r.id;u.email=u.email.toLowerCase();u.status='active';u.active=true;delete u.pw;DB.users.push(u);SNAP.users.set(u.id,rowHash(mapOf('users'),u));return true}
+ catch(e){toast(friendly(e),'bad');return false}}
+
+/* ============ start ============ */
+(async()=>{await loadDB();S.user=activeUser();render();setTimeout(periodic,1200)})();
+
+/* ---- exams: marking happens on the server ---- */
+async function refreshRow(key,id){const m=mapOf(key),r=await sbReq('/rest/v1/'+m.t,{query:`select=*&id=eq.${encodeURIComponent(id)}`});if(!r||!r[0])return;
+ const o=fromRow(m,r[0]),arr=DB[key],ix=arr.findIndex(x=>x.id===id);if(ix>=0)arr[ix]=o;else arr.push(o);(SNAP[key]||(SNAP[key]=new Map())).set(id,rowHash(m,o));if(r[0].updated_at>(CUR[m.t]||''))CUR[m.t]=r[0].updated_at;cacheSave()}
+const submitting=new Set();
+async function cloudSubmit(a,t){
+ if(t.status==='submitted')return true;if(submitting.has(t.id))return false;submitting.add(t.id);
+ try{if(!(await flush()))throw Object.assign(new Error('Your latest answers have not reached the school server yet.'),{network:true});
+  await sbReq('/rest/v1/rpc/submit_attempt',{method:'POST',body:{attempt_id:t.id}});await refreshRow('attempts',t.id);return true}
+ catch(e){toast(e.network?'You are offline. Your answers are saved on this device. Reconnect, then tap Submit again.':friendly(e),'bad');return false}
+ finally{submitting.delete(t.id)}}
 
 </script>
 </body>
